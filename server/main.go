@@ -36,21 +36,27 @@ func main(){
 		if err !=nil{
 			panic(err)
 		}
-		go func(c net.Conn){
-			defer c.Close()
-            var req rpc.Request
-			if err := json.NewDecoder(c).Decode(&req); err != nil{
+		go handleConnection(conn,server)
+	}
+}
+func handleConnection(c net.Conn, server *rpc.Server){
+		defer c.Close()
+		decoder := json.NewDecoder(c)
+		encoder := json.NewEncoder(c)
+		for{
+			var req rpc.Request
+			if err := decoder.Decode(&req); err!=nil{
 				return
 			}
 			result, err := server.Call(req.Method,req.Params)
-			res := rpc.Response{}
+			res := rpc.Response{
+				ID:req.ID,
+			}
 			if err != nil{
 				res.Error = err.Error()
 			}else{
-				res.Result =result
+				res.Result = result
 			}
-			json.NewEncoder(c).Encode(res)
-		}(conn)
+			encoder.Encode(res)
+		}
 	}
-
-}
