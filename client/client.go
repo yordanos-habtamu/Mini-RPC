@@ -5,8 +5,10 @@ import (
 	"net"
 	"fmt"
 	"github.com/yordanos-habtamu/mini-rpc/rpc"
+	"sync/atomic"
 )
 
+var nextID uint64 =1
 
 func main(){
 	conn,err := net.Dial("tcp",":9000")
@@ -14,25 +16,27 @@ func main(){
 		panic(err)
 	}
 	defer conn.Close()
-	req := rpc.Request{
-		Method:"Add",
-		Params:map[string]any{
-			"a":5,
-			"b":4,
-		},	
+	encoder := json.NewEncoder(conn)
+	decoder := json.NewDecoder(conn)
+	call := func(method string, params map[string]any){
+		id := atomic.AddUint64(&nextID,1)
+		req := rpc.Request{
+			ID:id,
+			Method: method,
+			Params:params,
 		}
-    if err := json.NewEncoder(conn).Encode(&req); err != nil{
-		panic(err)
+		encoder.Encode(req)
+		var res rpc.Response
+		decoder.Decode(&res)
+		if res.Error != ""{
+			fmt.Printf("RPC %d error: %s\n", res.ID,res.Error)
+		}else{
+			fmt.Printf("RPC %d result: %d ",res.ID,res.Result)
+		}
 	}
-	var res rpc.Response 
-	if err := json.NewDecoder(conn).Decode(&res); err != nil {
-		panic(err)
-	}
-	 if res.Error != "" {
-		fmt.Println("Error from server:", res.Error)
-		return 
-	 }
-	fmt.Println("Result from server:", res.Result)
+	call("Add",map[string]any{"a":2,"b":4})
+	call("Substract",map[string]any{"a":2,"b":4})
+	call("Multiply",map[string]any{"a":2,"b":4})
 	
 	}
 
