@@ -1,7 +1,9 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json"	
+	"time"
+	"sync"
 	"fmt"
 	"net"
 	"github.com/yordanos-habtamu/mini-rpc/rpc"
@@ -15,6 +17,7 @@ func main(){
 		return a +b,nil
 	})
 	server.Register("Multiply", func(params map[string]any)(any,error){
+		time.Sleep(30 * time.Second )
 		a :=int(params["a"].(float64))
 		b:= int(params["b"].(float64))
 		return a * b,nil
@@ -43,20 +46,28 @@ func handleConnection(c net.Conn, server *rpc.Server){
 		defer c.Close()
 		decoder := json.NewDecoder(c)
 		encoder := json.NewEncoder(c)
+		var writeMu sync.Mutex 
 		for{
 			var req rpc.Request
 			if err := decoder.Decode(&req); err!=nil{
 				return
 			}
-			result, err := server.Call(req.Method,req.Params)
-			res := rpc.Response{
-				ID:req.ID,
-			}
-			if err != nil{
-				res.Error = err.Error()
-			}else{
-				res.Result = result
-			}
-			encoder.Encode(res)
+
+			go func(req rpc.Request){
+				result, err := server.Call(req.Method,req.Params)
+				res := rpc.Response{
+					ID: req.ID,
+				}
+				if err != nil{
+					res.Error = err.Error()
+				}else{
+					res.Result = result
+				}
+
+				writeMu.Lock()
+				encoder.Encode(res)
+				writeMu.Unlock()		
+			}(req)
+			
 		}
 	}
