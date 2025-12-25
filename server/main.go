@@ -19,6 +19,11 @@ func main(){
 		b:= int(params["b"].(float64))
 		return a * b,nil
 	})
+	server.Register("Substract", func(params map[string]any)(any,error){
+		a := int(params["a"].(float64))
+		b := int(params["b"].(float64))
+		return a-b, nil
+	})
 	
     ln,err := net.Listen("tcp",":9000")
 	if err != nil{
