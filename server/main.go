@@ -1,0 +1,51 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net"
+	"github.com/yordanos-habtamu/mini-rpc/rpc"
+)
+
+func main(){
+	server := rpc.NewServer()
+	server.Register("Add", func(params map[string]any)(any,error){
+		a :=int(params["a"].(float64))
+		b:= int(params["b"].(float64))
+		return a +b,nil
+	})
+	server.Register("Multiply", func(params map[string]any)(any,error){
+		a :=int(params["a"].(float64))
+		b:= int(params["b"].(float64))
+		return a * b,nil
+	})
+	
+    ln,err := net.Listen("tcp",":9000")
+	if err != nil{
+		panic(err)
+	}
+	
+	fmt.Println("Server is listening on port  9000")
+	for {
+		conn, err := ln.Accept()
+		if err !=nil{
+			panic(err)
+		}
+		go func(c net.Conn){
+			defer c.Close()
+            var req rpc.Request
+			if err := json.NewDecoder(c).Decode(&req); err != nil{
+				return
+			}
+			result, err := server.Call(req.Method,req.Params)
+			res := rpc.Response{}
+			if err != nil{
+				res.Error = err.Error()
+			}else{
+				res.Result =result
+			}
+			json.NewEncoder(c).Encode(res)
+		}(conn)
+	}
+
+}
