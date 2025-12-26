@@ -1,3 +1,10 @@
 package rpc
+import(
+	"context"
+)
 
-type HandlerFunc func(params map[string]any) (any,error)
+type Handler func(ctx context.Context, params map[string]any) (any, error)
+
+type Server struct {
+	handlers map[string]Handler
+}

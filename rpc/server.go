@@ -1,27 +1,28 @@
 package rpc
 
-import "fmt"
-type Server struct {
-	methods map[string]HandlerFunc
-}
+import (
+	"context"
+	"fmt"
+)
+
 
 func NewServer() *Server{
 	return &Server{
-		methods: make(map[string]HandlerFunc),
+		handlers: make(map[string]Handler),
 	}
 }
 
-func (s *Server) Register(name string,handler HandlerFunc){
-	if _,exists := s.methods[name];exists{
+func (s *Server) Register(name string,handler Handler){
+	if _,exists := s.handlers[name];exists{
 		panic(fmt.Sprint("method %v already registered", name))
 	}
-	s.methods[name] = handler
+	s.handlers[name] = handler
 }
 
-func (s *Server) Call(method string,params map[string]any) (any,error){
-	handler,ok:= s.methods[method]
+func (s *Server) Call(ctx context.Context,method string,params map[string]any) (any,error){
+	handler,ok:= s.handlers[method]
 	if !ok{
 		return nil,fmt.Errorf("unknown method %v",method)
 	}
-	return handler(params)
+	return handler(ctx,params)
 }

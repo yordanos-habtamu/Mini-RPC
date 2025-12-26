@@ -13,21 +13,36 @@ import (
 
 func main(){
 	server := rpc.NewServer()
-	server.Register("Add", func(params map[string]any)(any,error){
+	server.Register("Add", func(ctx context.Context,params map[string]any)(any,error){
 		a :=int(params["a"].(float64))
 		b:= int(params["b"].(float64))
-		return a +b,nil
+			select {
+	case <-time.After(3 * time.Second):
+		return a + b, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	})
-	server.Register("Multiply", func(params map[string]any)(any,error){
+	server.Register("Multiply", func(ctx context.Context,params map[string]any)(any,error){
 		time.Sleep(3 * time.Second )
 		a :=int(params["a"].(float64))
 		b:= int(params["b"].(float64))
-		return a * b,nil
+			select {
+	case <-time.After(3 * time.Second):
+		return a * b, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	})
-	server.Register("Substract", func(params map[string]any)(any,error){
+	server.Register("Substract", func(ctx context.Context,params map[string]any)(any,error){
 		a := int(params["a"].(float64))
 		b := int(params["b"].(float64))
-		return a-b, nil
+			select {
+	case <-time.After(3 * time.Second):
+		return a - b, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	})
 	
     ln,err := net.Listen("tcp",":9000")
@@ -49,7 +64,17 @@ func handleConnection(c net.Conn, server *rpc.Server){
 		decoder := json.NewDecoder(c)
 		encoder := json.NewEncoder(c)
 		var writeMu sync.Mutex 
+		var inflightMu sync.Mutex
 		inflight := make(map[uint64]context.CancelFunc)
+
+		defer func() {
+		inflightMu.Lock()
+		for _, cancel := range inflight {
+			cancel()
+		}
+		inflightMu.Unlock()
+	}()
+
 		for {
 			var raw json.RawMessage
 			if err := decoder.Decode(&raw); err !=nil{
@@ -59,16 +84,16 @@ func handleConnection(c net.Conn, server *rpc.Server){
 			var req rpc.Request
 			if  json.Unmarshal(raw,&req)==nil && req.Method !=""{
 				ctx,cancel := context.WithCancel(context.Background())
-				writeMu.Lock()
+				inflightMu.Lock()
 				inflight[req.ID] = cancel
-				writeMu.Unlock()
+			 	inflightMu.Unlock()
 				go func(req rpc.Request, ctx context.Context){
 					defer func(){
-						writeMu.Lock()
+						inflightMu.Lock()
 						delete(inflight,req.ID)
-						writeMu.Unlock()
+						inflightMu.Unlock()
 					}()
-					result, err := server.Call(req.Method,req.Params)
+					result, err := server.Call(ctx,req.Method,req.Params)
 					select{
 					case <- ctx.Done():
 						return
@@ -88,11 +113,11 @@ func handleConnection(c net.Conn, server *rpc.Server){
 			}
 			var cancel rpc.Cancel
 			if json.Unmarshal(raw,&cancel) == nil{
-				writeMu.Lock()
+				inflightMu.Lock()
 				if cfn := inflight[cancel.ID]; cfn != nil{
 					cfn()
 				}
-				writeMu.Unlock()
+				inflightMu.Unlock()
 			}
 		}
 }
