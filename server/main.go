@@ -63,6 +63,8 @@ func handleConnection(c net.Conn, server *rpc.Server){
 		defer c.Close()
 		decoder := json.NewDecoder(c)
 		encoder := json.NewEncoder(c)
+		const maxInflight = 5
+		sema := make(chan struct{},maxInflight)
 		var writeMu sync.Mutex 
 		var inflightMu sync.Mutex
 		inflight := make(map[uint64]context.CancelFunc)
@@ -83,7 +85,20 @@ func handleConnection(c net.Conn, server *rpc.Server){
 		
 			var req rpc.Request
 			if  json.Unmarshal(raw,&req)==nil && req.Method !=""{
-				ctx,cancel := context.WithCancel(context.Background())
+
+				select {
+				case sema <- struct{}{}:
+				default:
+					writeMu.Lock()
+					_= encoder.Encode(
+						rpc.Response{
+							ID: req.ID,
+							Error:"server busy, try again later",
+						})
+						writeMu.Unlock()
+						continue					
+				}
+			   ctx,cancel := context.WithCancel(context.Background())
 				inflightMu.Lock()
 				inflight[req.ID] = cancel
 			 	inflightMu.Unlock()
@@ -92,6 +107,7 @@ func handleConnection(c net.Conn, server *rpc.Server){
 						inflightMu.Lock()
 						delete(inflight,req.ID)
 						inflightMu.Unlock()
+						<-sema
 					}()
 					result, err := server.Call(ctx,req.Method,req.Params)
 					select{
@@ -106,7 +122,7 @@ func handleConnection(c net.Conn, server *rpc.Server){
 					res.Result = result
 				}
 				writeMu.Lock()
-				encoder.Encode(res)
+				_ = encoder.Encode(res)
 				writeMu.Unlock()
 			}(req,ctx)
 			continue
