@@ -65,9 +65,10 @@ func main(){
 		mu.Unlock()
 		}
 	}
-	call("Add",map[string]any{"a":2,"b":4},2 * time.Second)
-	call("Substract",map[string]any{"a":2,"b":4},1  *time.Second)
-	call("Multiply",map[string]any{"a":2,"b":4},2 *time.Second)
+	// call("Add",map[string]any{"a":2,"b":4},2 * time.Second)
+	// call("Substract",map[string]any{"a":2,"b":4},1  *time.Second)
+	// call("Multiply",map[string]any{"a":2,"b":4},2 *time.Second)
+	call("countToN",map[string]any{"n":5},1*time.Second)
 
 	select {}
 	}

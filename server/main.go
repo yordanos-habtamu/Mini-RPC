@@ -44,7 +44,23 @@ func main(){
 		return nil, ctx.Err()
 	}
 	})
-	
+	server.Register("countToN", func(ctx context.Context,params map[string]any)(any,error){
+        n := int(params["n"].(float64))
+		resCh:=make(chan int)
+		go func(){
+			defer close(resCh)
+			for i:=1;i<=n;i++{
+				select {
+				case <- ctx.Done():
+					return 
+				case resCh<-i:
+					time.Sleep(500 * time.Millisecond)
+				}
+			}
+		}()
+		return resCh,nil
+	})
+
     ln,err := net.Listen("tcp",":9000")
 	if err != nil{
 		panic(err)
@@ -115,7 +131,17 @@ func handleConnection(c net.Conn, server *rpc.Server){
 						return
 					default:
 					}
-				res := rpc.Response{ID:req.ID}
+				if ch, ok := result.(chan int); ok {
+					for val:= range ch{
+						writeMu.Lock()
+						_=encoder.Encode(rpc.Response{
+							ID: req.ID,
+							Result:val,
+						})
+						writeMu.Unlock()
+					}
+				}
+			res := rpc.Response{ID:req.ID}
 				if err != nil{
 					res.Error = err.Error()
 				}else{
@@ -135,7 +161,7 @@ func handleConnection(c net.Conn, server *rpc.Server){
 				}
 				inflightMu.Unlock()
 			}
-		}
+		}			
 }
 
 		
