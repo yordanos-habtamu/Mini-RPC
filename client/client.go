@@ -2,11 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"time"
 	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
 	"github.com/yordanos-habtamu/mini-rpc/rpc"
+	
 )
 
 var nextID uint64 =0
@@ -21,6 +23,7 @@ func main(){
 	decoder := json.NewDecoder(conn)
 	pending := make(map[uint64]chan rpc.Response)
 	var mu sync.Mutex
+
 	go func(){
 		for{
 			var res rpc.Response
@@ -34,7 +37,7 @@ func main(){
 			ch<-res
 		}
 	}()
-	call := func(method string, params map[string]any){
+	call := func(method string, params map[string]any, timeout time.Duration){
 		id := atomic.AddUint64(&nextID,1)
 		resCh := make(chan rpc.Response,1)
 		mu.Lock()
@@ -46,18 +49,26 @@ func main(){
 			Params:params,
 		}
 		encoder.Encode(req)
-		res := <- resCh
-		if res.Error != ""{
-			fmt.Printf("RPC %v error : %v \n",id,res.Error)
-		}else{
-			fmt.Printf("RPC %v result: %v \n", id , res.Result)
+		select {
+		case res := <- resCh:
+			if res.Error != ""{
+				fmt.Printf("RPC %v error : %v \n",id,res.Error)
+			}else{
+				fmt.Printf("RPC %v result: %v \n", id , res.Result)
+			}
+	case <- time.After(timeout):
+		fmt.Printf("RPC %v timed out \n", id)
+		cancel := rpc.Cancel{ID:id}
+		encoder.Encode(cancel)
+		mu.Lock()
+		delete(pending,id)
+		mu.Unlock()
 		}
 	}
-	for i:=0; i < 10 ; i++ {
-	call("Add",map[string]any{"a":2,"b":4+i})
-	call("Substract",map[string]any{"a":2+i,"b":4})
-	call("Multiply",map[string]any{"a":2-i,"b":4})
-	}
+	call("Add",map[string]any{"a":2,"b":4},2 * time.Second)
+	call("Substract",map[string]any{"a":2,"b":4},1  *time.Second)
+	call("Multiply",map[string]any{"a":2,"b":4},2 *time.Second)
+
 	select {}
 	}
 
