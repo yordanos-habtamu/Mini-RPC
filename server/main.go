@@ -13,53 +13,26 @@ import (
 
 func main() {
 	server := rpc.NewServer()
-	server.Register("Add", func(ctx context.Context, params map[string]any) (any, error) {
-		a := int(params["a"].(float64))
-		b := int(params["b"].(float64))
-		select {
-		case <-time.After(3 * time.Second):
-			return a + b, nil
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	})
-	server.Register("Multiply", func(ctx context.Context, params map[string]any) (any, error) {
-		time.Sleep(3 * time.Second)
-		a := int(params["a"].(float64))
-		b := int(params["b"].(float64))
-		select {
-		case <-time.After(3 * time.Second):
-			return a * b, nil
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	})
-	server.Register("Substract", func(ctx context.Context, params map[string]any) (any, error) {
-		a := int(params["a"].(float64))
-		b := int(params["b"].(float64))
-		select {
-		case <-time.After(3 * time.Second):
-			return a - b, nil
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	})
-	server.Register("countToN", func(ctx context.Context, params map[string]any) (any, error) {
+ server.RegisterUniary("Add", func(ctx context.Context, params map[string]any) (any, error) {
+	a := int(params["a"].(float64))
+	b := int(params["b"].(float64))
+	return a + b, nil
+})
+server.RegisterStreaming("CountToN",
+	func(ctx context.Context, params map[string]any, stream chan<- any) error {
 		n := int(params["n"].(float64))
-		resCh := make(chan int)
-		go func() {
-			defer close(resCh)
-			for i := 1; i <= n; i++ {
-				select {
-				case <-ctx.Done():
-					return
-				case resCh <- i:
-					time.Sleep(500 * time.Millisecond)
-				}
+
+		for i := 1; i <= n; i++ {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case stream <- i:
+				time.Sleep(500 * time.Millisecond)
 			}
-		}()
-		return resCh, nil
+		}
+		return nil
 	})
+
 
 	ln, err := net.Listen("tcp", ":9000")
 	if err != nil {
@@ -125,32 +98,40 @@ func handleConnection(c net.Conn, server *rpc.Server) {
 					inflightMu.Unlock()
 					<-sema
 				}()
-				result, err := server.Call(ctx, req.Method, req.Params)
+				method,result, err := server.Call(ctx, req.Method, req.Params)
 				select {
 				case <-ctx.Done():
 					return
 				default:
 				}
-				if ch, ok := result.(chan int); ok {
-					for val := range ch {
-						writeMu.Lock()
-						_ = encoder.Encode(rpc.Response{
-							ID:     req.ID,
-							Result: val,
-						})
-						writeMu.Unlock()
+				switch method.Kind {
+				case rpc.Unary:
+					res := rpc.Response{ID:req.ID}
+					if err != nil{
+						res.Error = err.Error()
+					}else{
+						res.Result = result
 					}
-					return // Exit after streaming is done - don't send extra response
+					writeMu.Lock()
+					_= encoder.Encode(res)
+					writeMu.Unlock()
+				case rpc.Streaming:
+					stream := result.(chan any)
+					for  v := range stream{
+						select {
+						case <- ctx.Done():
+							return
+						default:
+							writeMu.Lock()
+							_=encoder.Encode(
+								rpc.Response{
+									ID:req.ID,
+									Result:v,
+								})
+								writeMu.Unlock()
+						}
+					}
 				}
-				res := rpc.Response{ID: req.ID}
-				if err != nil {
-					res.Error = err.Error()
-				} else {
-					res.Result = result
-				}
-				writeMu.Lock()
-				_ = encoder.Encode(res)
-				writeMu.Unlock()
 			}(req, ctx)
 			continue
 		}

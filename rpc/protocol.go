@@ -1,5 +1,13 @@
 package rpc
 
+type RPCType int
+
+
+const (
+	Unary RPCType = iota
+	Streaming
+)
+
 type Request struct {
 	ID uint64 `json:"id"`
 	Method string `json:"method"`
